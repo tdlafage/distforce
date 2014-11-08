@@ -27,7 +27,12 @@ class FixDistForce : public Fix {
   void min_pre_force(int);
 
  private:
- 
+
+ int nmolecules;
+ tagint idlo,idhi;
+ int firstflag;
+
+ double *masstotal;
 };
 
 };
