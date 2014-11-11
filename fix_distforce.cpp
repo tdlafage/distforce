@@ -33,7 +33,6 @@ FixDistForce::~FixDistForce()
 }
 
 /* ---------------------------------------------------------------------- */
-
 using namespace FixConst;
 int FixDistForce::setmask()
 {
@@ -41,9 +40,9 @@ int FixDistForce::setmask()
   int mask = 0;
 //  mask |= PRE_FORCE;
 //  mask |= MIN_PRE_FORCE;
-  mask |= POST_FORCE;
-  mask |= MIN_POST_FORCE;
-  mask |= END_OF_STEP;
+  mask |=  FixConst::POST_FORCE;
+  mask |=  FixConst::MIN_POST_FORCE;
+  mask |=  FixConst::END_OF_STEP;
   return mask;
 }
 
@@ -76,7 +75,44 @@ void FixDistForce::min_setup(int vflag)
 
 void FixDistForce::post_force(int vflag)
 {
+  tagint imol;
+  double massone;
+  double masstotal;
 
+  masstotal = 0.0;
+
+  double **x = atom->x;
+  double **f = atom->f;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  int *type = atom->type;
+  tagint *molecule = atom->molecule;
+  double *mass = atom->mass;
+  double *rmass = atom->rmass;
+
+  for (int i = 0; i < nlocal; i++){
+     if (mask[i] & groupbit) {
+	imol = molecule[i];
+	for(int j = 0; j < nlocal; j++){
+	if(imol == molecule[j]){
+        if(i != j){
+		massone = mass[type[j]];
+		masstotal += massone;
+	}
+	}
+	}
+	for(int k = 0; k < nlocal; k++){
+	if(imol == molecule[k]){
+	if(i != k){
+		massone = mass[type[k]];
+		f[k][0] += massone+f[i][0]/masstotal;
+		f[k][1] += massone+f[i][1]/masstotal;
+		f[k][2] += massone+f[i][2]/masstotal;
+	}
+	}
+	}
+   }
+   }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -101,7 +137,7 @@ void FixDistForce::end_of_step()
 
  // printf("%d\n",nlocal);
 
-  for (int i = 0; i < nlocal; i++)
+  for (int i = 0; i < nlocal; i++){
     if (mask[i] & groupbit) {
       x[i][0] = x[i][1] = x[i][2] = 0.0;
       imol = molecule[i];
@@ -112,9 +148,9 @@ void FixDistForce::end_of_step()
 //    if (rmass) massone = rmass[i];
 //    massone = mass[type[i]];
       masstotal = 0.0;
-      for(int j = 0; j < nlocal; j++)
-	{
+      for(int j = 0; j < nlocal; j++){
           if(imol == molecule[j]) {
+	  if(i != j){
 //	printf("this is j:%d this is molecule of j:%d\n",j,molecule[j]);
 /* uncomment maybe? */
 //        if (molmap) imol = molmap[imol-idlo];
@@ -127,21 +163,22 @@ void FixDistForce::end_of_step()
             x[i][1] += unwrap[1] * massone;
             x[i][2] += unwrap[2] * massone;
             masstotal += massone; 
-  
+    }
     }
     }
 //     printf("x coordinate of COM:%lf total mass of molecule:%lf\n",x[i][0],masstotal);
      x[i][0] /= masstotal;
      x[i][1] /= masstotal;
      x[i][2] /= masstotal;
-     
-	for(int j = 0;j < 3; j++)
-	{
-		if(x[i][j] > hi[j]){
-		x[i][j] -= (hi[j]-lo[j]);}
-		if(x[i][j] < lo[j]){
-		x[i][j] += (hi[j]-lo[j]);}
-        }
+
+//	for(int j = 0;j < 3; j++)
+//	{
+//		if(x[i][j] > hi[j]){
+//		x[i][j] -= (hi[j]-lo[j]);}
+//		if(x[i][j] < lo[j]){
+//		x[i][j] += (hi[j]-lo[j]);}
+//      }
+    }
     }
       
 }
