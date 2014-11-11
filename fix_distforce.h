@@ -23,8 +23,7 @@ class FixDistForce : public Fix {
   void min_setup(int);
   void post_force(int);
   void min_post_force(int);
-  void pre_force(int);
-  void min_pre_force(int);
+  void end_of_step();
 
  private:
 

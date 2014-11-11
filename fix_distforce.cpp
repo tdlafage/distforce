@@ -14,11 +14,12 @@ using namespace LAMMPS_NS;
 FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-   if (narg != 2) error->all(FLERR,"Illegal fix distforce command");
+   if (narg != 3) error->all(FLERR,"Illegal fix distforce command");
 
    if (atom->molecular == 0)
     error->all(FLERR,"Fix distforce requires full or molecular atom style");
 
+   nevery=1;
 
   // memory->create(masstotal,nmolecules,"distforce/molecule:masstotal");
 
@@ -28,7 +29,7 @@ FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
 
 FixDistForce::~FixDistForce()
 {
-  memory->destroy(masstotal);
+  //memory->destroy(masstotal);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -38,10 +39,11 @@ int FixDistForce::setmask()
 {
   // set with a bitmask how and when apply the force from EDM 
   int mask = 0;
-  mask |= PRE_FORCE;
-  mask |= MIN_PRE_FORCE;
+//  mask |= PRE_FORCE;
+//  mask |= MIN_PRE_FORCE;
   mask |= POST_FORCE;
   mask |= MIN_POST_FORCE;
+  mask |= END_OF_STEP;
   return mask;
 }
 
@@ -67,9 +69,9 @@ void FixDistForce::min_setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixDistForce::pre_force(int vflag)
-{
-}
+//void FixDistForce::pre_force(int vflag)
+//{
+//}
 /* ---------------------------------------------------------------------- */
 
 void FixDistForce::post_force(int vflag)
@@ -79,16 +81,15 @@ void FixDistForce::post_force(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixDistForce::min_pre_force(int vflag)
-{
- pre_force(vflag);
-
+void FixDistForce::end_of_step()
+ {
   tagint imol;
   double massone;
-  int j;
   double masstotal;
   double unwrap[3];
 
+  double *lo = domain->boxlo;
+  double *hi = domain->boxhi;
   double **x = atom->x;
   int *mask = atom->mask;
   tagint *molecule = atom->molecule;
@@ -98,11 +99,13 @@ void FixDistForce::min_pre_force(int vflag)
   double *rmass = atom->rmass;
   int nlocal = atom->nlocal;
 
+ // printf("%d\n",nlocal);
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       x[i][0] = x[i][1] = x[i][2] = 0.0;
       imol = molecule[i];
+ //     printf("this is i:%d this is imol:%d\n",i,imol);
 //    if (molmap) imol = molmap[imol-idlo];
 //    else imol--;
 //    domain->unmap(x[i],image[i],unwrap);
@@ -110,13 +113,14 @@ void FixDistForce::min_pre_force(int vflag)
 //    massone = mass[type[i]];
       masstotal = 0.0;
       for(int j = 0; j < nlocal; j++)
-          if(imol = molecule[j]) {
-
+	{
+          if(imol == molecule[j]) {
+//	printf("this is j:%d this is molecule of j:%d\n",j,molecule[j]);
 /* uncomment maybe? */
 //        if (molmap) imol = molmap[imol-idlo];
 //        else imol--;
             domain->unmap(x[j],image[j],unwrap);
-            if (rmass) massone = rmass[j];
+//            if (rmass) massone = rmass[j];
             massone = mass[type[j]];		
 
             x[i][0] += unwrap[0] * massone;
@@ -125,9 +129,21 @@ void FixDistForce::min_pre_force(int vflag)
             masstotal += massone; 
   
     }
+    }
+//     printf("x coordinate of COM:%lf total mass of molecule:%lf\n",x[i][0],masstotal);
      x[i][0] /= masstotal;
      x[i][1] /= masstotal;
-     x[i][2] /= masstotal;      
+     x[i][2] /= masstotal;
+     
+	for(int j = 0;j < 3; j++)
+	{
+		if(x[i][j] > hi[j]){
+		x[i][j] -= (hi[j]-lo[j]);}
+		if(x[i][j] < lo[j]){
+		x[i][j] += (hi[j]-lo[j]);}
+        }
+    }
+      
 }
 
 //  MPI_Allreduce(&com[0][0],&comall[0][0],3*nmolecules,
@@ -135,9 +151,7 @@ void FixDistForce::min_pre_force(int vflag)
 //  for (int i = 0; i < nmolecules; i++) {
 //    comall[i][0] /= masstotal[i];
 //    comall[i][1] /= masstotal[i];
- //   comall[i][2] /= masstotal[i];
-
-}
+//    comall[i][2] /= masstotal[i];
 
 /* ---------------------------------------------------------------------- */
 
