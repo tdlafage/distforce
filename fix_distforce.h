@@ -30,8 +30,10 @@ class FixDistForce : public Fix {
  int nmolecules;
  tagint idlo,idhi;
  int firstflag;
-
  double *masstotal;
+
+ void summolmass(int);
+
 };
 
 };
