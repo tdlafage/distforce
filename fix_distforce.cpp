@@ -6,6 +6,10 @@
 #include "memory.h"
 #include "group.h"
 #include "domain.h"
+#include "mpi.h"
+#include "update.h"
+#include "compute.h"
+
 
 using namespace LAMMPS_NS;
 
@@ -16,6 +20,11 @@ FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
 {
 
    int nmax=atom->nmax;
+   tagint idlo;
+   tagint idhi;
+
+// Error flags. First one makes sure the correct number of flags. The second
+// makes sure that there molecule numbers in the atom type.
 
    if (narg != 3) error->all(FLERR,"Illegal fix distforce command");
 
@@ -24,7 +33,43 @@ FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
 
    nevery=1;
 
-   memory->create(masstotal,nmax,"distforce/molecule:masstotal");
+  nmolecules = 250;
+  size_array_rows = nmolecules;
+
+// Memory allocation
+
+   memory->create(masstotal,nmolecules,"distforce/molecule:masstotal");
+   memory->create(massproc,nmolecules,"distforce/molecule:massproc");
+   memory->create(comall,nmolecules,3,"distforce/molecule:comall");
+   memory->create(comhold,nmolecules,3,"distforce/molecule:comhold");
+   meomry->create(forceproc,nmolecules,3,"distforce/molecule:forceproc");
+   memory->create(forceall,nmolecules,3,"distforce/molecule:forceall");
+
+  int *mask = atom->mask;
+  tagint *molecule = atom->molecule;
+  int *type = atom->type;
+  double *mass = atom->mass;
+  double *rmass = atom->rmass;
+  int nlocal = atom->nlocal;
+
+  tagint imol;
+  double massone;
+
+// Molecular mass calculator
+
+  for (int i = 0; i < nmolecules; i++) massproc[i] = 0.0;
+
+  for (int i = 0; i < nlocal; i++){
+	imol = molecule[i];
+	if (rmass) massone = rmass[i];
+	else massone = mass[type[i]];
+	if(!(mask[i] & groupbit)){
+		massproc[imol-1] += massone;
+	}
+  }
+
+  MPI_Allreduce(&massproc[0],&masstotal[0],nmolecules,MPI_DOUBLE,MPI_SUM,world);
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -32,6 +77,11 @@ FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
 FixDistForce::~FixDistForce()
 {
   memory->destroy(masstotal);
+  memory->destroy(massproc);
+  memory->destroy(comall);
+  memory->destroy(comhold);
+  memory->destroy(forceproc);
+  memory->destroy(forceall);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -40,11 +90,10 @@ int FixDistForce::setmask()
 {
   // set with a bitmask how and when apply the force from EDM 
   int mask = 0;
-//  mask |= PRE_FORCE;
-//  mask |= MIN_PRE_FORCE;
   mask |=  FixConst::POST_FORCE;
   mask |=  FixConst::MIN_POST_FORCE;
-  mask |=  FixConst::END_OF_STEP;
+  mask |=  FixConst::POST_INTEGRATE;
+  mask |=  FixConst::MIN_PRE_EXCHANGE; 
   return mask;
 }
 
@@ -52,14 +101,8 @@ int FixDistForce::setmask()
 
 void FixDistForce::init()
 {
-
-   int nmax=atom->nmax;
-
-  for(int i = 0; i < nmax; i++){
-	masstotal[i] = -1.0;
-  }
-
 }
+ 
 
 /* ---------------------------------------------------------------------- */
 
@@ -76,18 +119,14 @@ void FixDistForce::min_setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-//void FixDistForce::pre_force(int vflag)
-//{
-//}
-/* ---------------------------------------------------------------------- */
-
 void FixDistForce::post_force(int vflag)
 {
-  int imol;
+  tagint imol;
   double massone;
 
   double **x = atom->x;
   double **f = atom->f;
+  double **v = atom->v;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
   int nghost = atom->nghost;
@@ -96,34 +135,54 @@ void FixDistForce::post_force(int vflag)
   double *mass = atom->mass;
   double *rmass = atom->rmass;
 
-  for (int i = 0; i < nlocal; i++){
-     if (mask[i] & groupbit) {
-	imol = molecule[i];
-	for(int k = 0; k < nlocal; k++){
-	if(imol == molecule[k]){
-	if(i != k){
-		if(masstotal[imol] <  0.0){
-		summolmass(imol);
-		}
-//		if (rmass) massone = rmass[k];
-		massone = mass[type[k]];
-		f[k][0] += massone*f[i][0]/masstotal[imol];
-		f[k][1] += massone*f[i][1]/masstotal[imol];
-		f[k][2] += massone*f[i][2]/masstotal[imol];
+// Force distributor
+
+  for(int i = 0; i < nmolecules; i++){
+	forceproc[i][0] = 0.0;
+	forceproc[i][1] = 0.0;
+	forceproc[i][2] = 0.0;
+  }
+
+  for(int i = 0; i < nlocal; i++){
+	if(mask[i] & groubit){
+		imol = molecule[i];
+		forceproc[imol-1][0] = f[i][0];
+		forceproc[imol-1][1] = f[i][1];
+		forceproc[imol-1][2] = f[i][2];
+
+		f[i][0] = 0.0;
+		f[i][1] = 0.0;
+		f[i][2] = 0.0;
 	}
+  }
+
+  MPI_Allreduce(&forceproc[0][0],&forceall[0][0],3*nmolecules,
+                MPI_DOUBLE,MPI_SUM,world);
+
+  for(int i = 0; i < nlocal; i++){
+	if(!(mask[i] & groupbit){
+		imol = molecule[i];
+		if (rmass) massone = rmass[i];
+		else massone = mass[type[i]];
+		f[i][0] += massone*forceall[imol-1][0]/masstotal[imol-1];
+		f[i][1] += massone*forceall[imol-1][1]/masstotal[imol-1];
+		f[i][2] += massone*forceall[imol-1][2]/masstotal[imol-1];
 	}
-	}
-   }
-   }
+  }
 }
+
+  
 
 /* ---------------------------------------------------------------------- */
 
-void FixDistForce::end_of_step()
+void FixDistForce::post_integrate()
  {
-  int imol;
+  tagint imol;
   double massone;
   double unwrap[3];
+  int n;
+  int k;
+
 
   double *lo = domain->boxlo;
   double *hi = domain->boxhi;
@@ -136,82 +195,68 @@ void FixDistForce::end_of_step()
   double *rmass = atom->rmass;
   int nlocal = atom->nlocal;
   int nghost = atom->nghost;
+  double *sublo = domain->sublo;
+  double *subhi = domain->subhi;
+  tagint *tag = atom->tag;
+
+// COM pseudo integrator
+
+  for(int i = 0; i < nmolecules; i++){
+	comhold[i][0] = 0.0;
+	comhold[i][1] = 0.0;
+	comhold[i][2] = 0.0;
+  }
+
+  for(int i = 0; i < nlocal; i++){
+	imol = molecule[i];
+	if (rmass) massone = rmass[i];
+	else massone = mass[type[i]];
+	if(!(mask[i] & groupbit)){
+		domain->unmap(x[i],image[i],unwrap);
+		comhold[imol-1][0] += unwrap[0] * massone / masstotal[imol-1];
+		comhold[imol-1][1] += unwrap[1] * massone / masstotal[imol-1];
+		comhold[imol-1][2] += unwrap[2] * massone / masstotal[imol-1];
+	}
+  }
+
+  MPI_Allreduce(&comhold[0][0],&comall[0][0],3*nmolecules,
+                MPI_DOUBLE,MPI_SUM,world);
 
 
-  for (int i = 0; i < (nlocal); i++){
-	if (mask[i] & groupbit) {
-		x[i][0] = x[i][1] = x[i][2] = 0.0;
+  for(int i = 0; i < nlocal; i++){
+	if(mask[i] & groupbit) {
 		imol = molecule[i];
-//    if (molmap) imol = molmap[imol-idlo];
-//    else imol--;
-		for(int j = 0; j < (nlocal); j++){
-			if(imol == molecule[j]) {
-				if(i != j){
+		imol--;
+		x[i][0] = comall[imol][0];
+		x[i][1] = comall[imol][1];
+		x[i][2] = comall[imol][2];
 
-/* uncomment maybe? */
-//        if (molmap) imol = molmap[imol-idlo];
-//        else imol--;
-					domain->unmap(x[j],image[j],unwrap);
-//					if (rmass) massone = rmass[j];
-					massone = mass[type[j]];		
+//		image flag calculator
 
-					x[i][0] += unwrap[0] * massone;
-					x[i][1] += unwrap[1] * massone;
-					x[i][2] += unwrap[2] * massone;
-				}
+		for(int k = 0;k < 3;k++){
+			if(x[i][k] > hi[k]){
+				n = int((x[i][k]+lo[k])/(hi[k]-lo[k]));
+				image[i] = n;
+			}
+			if(x[i][k] < lo[k]){
+				n = int((x[i][k]-hi[k])/(hi[k]-lo[k]));
+				image[i] = n;
 			}
 		}
-		if(masstotal[imol] < 0.0){
-			summolmass(imol);
-		}
-//		printf("%lf\n",masstotal[imol]);
-		x[i][0] /= masstotal[imol];
-		x[i][1] /= masstotal[imol];
-		x[i][2] /= masstotal[imol];
 	}
-    }
-      
+  }
 }
 
-//  MPI_Allreduce(&com[0][0],&comall[0][0],3*nmolecules,
-//                MPI_DOUBLE,MPI_SUM,world);
-//  for (int i = 0; i < nmolecules; i++) {
-//    comall[i][0] /= masstotal[i];
-//    comall[i][1] /= masstotal[i];
-//    comall[i][2] /= masstotal[i];
 
 /* ---------------------------------------------------------------------- */
 
 void FixDistForce::min_post_force(int vflag)
 {
-  post_force(vflag);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixDistForce::summolmass(int num)
+void FixDistForce::min_pre_exchange()
 {
-	double massone;
-
-	double *mass = atom->mass;
-	double *rmass = atom->rmass;
-	int nlocal = atom->nlocal;
-	int nghost = atom->nghost;
-	tagint *molecule = atom->molecule;
-	int *type = atom->type;
-
-	int imol;
-
-//	printf("summolmass is being called");
-//	printf("nlocal:%d nghosts:%d\n",nlocal,nghost);
-	masstotal[num] = 0.0;
-
-	for(int i = 0; i < (nlocal); i++){
-		imol = molecule[i];
-		if(imol == num){
-			massone = mass[type[i]];
-			masstotal[num] += massone;
-		}
-	}
-//	printf("Molecular mass:%lf\n",masstotal[num]);		
 }
+

@@ -10,6 +10,7 @@ FixStyle(distforce,FixDistForce)
 #include "fix.h"
 #include "edm_bias.h"
 #include "random_mars.h"
+#include "compute.h"
 
 namespace LAMMPS_NS {
 
@@ -23,16 +24,20 @@ class FixDistForce : public Fix {
   void min_setup(int);
   void post_force(int);
   void min_post_force(int);
-  void end_of_step();
+  void post_integrate();
+  void min_pre_exchange();
+//  void end_of_step();
 
  private:
 
  int nmolecules;
  tagint idlo,idhi;
  int firstflag;
- double *masstotal;
-
- void summolmass(int);
+// double *counterproc,*counterall;
+ double *massproc,*masstotal;
+ double **comhold, **comall;
+ double **forceproc, **forceall;
+// void summolmass(int);
 
 };
 
