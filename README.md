@@ -1,4 +1,5 @@
 distforce
+=========
 
 This repository contains a fix for LAMMPS that pseudo integrates and distributes forces on virtual COM particles onto physical atoms of the same molecule. 
 This fix was designed for the Febuary 2014 distribution of LAMMPS. 
@@ -10,8 +11,6 @@ Before the run command in the input write:
 fix fix-id distforce group-id
 
 the group-id should be the virtual sites.
-
-=========
 
 Todo:
 
