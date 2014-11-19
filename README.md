@@ -10,6 +10,7 @@ Before the run command in the input write:
 fix fix-id distforce group-id
 
 the group-id should be the virtual sites.
+
 =========
 
 Todo:
