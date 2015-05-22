@@ -8,7 +8,7 @@ To utilize this code, add COM mass sites to your data file. Give them a small ma
 In the input file, set the charge and LJ parameters to zero. Also make sure not to give the COM vitrual sites no velocity.
 Before the run command in the input write:
 
-fix fix-id distforce group-id
+fix fix-id distforce group-id nmolecule
 
 the group-id should be the virtual sites.
 
