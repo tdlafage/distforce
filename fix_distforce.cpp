@@ -26,14 +26,14 @@ FixDistForce::FixDistForce(LAMMPS *lmp, int narg, char **arg) :
 // Error flags. First one makes sure the correct number of flags. The second
 // makes sure that there molecule numbers in the atom type.
 
-   if (narg != 3) error->all(FLERR,"Illegal fix distforce command");
+   if (narg != 4) error->all(FLERR,"Illegal fix distforce command");
 
    if (atom->molecular == 0)
     error->all(FLERR,"Fix distforce requires full or molecular atom style");
 
    nevery=1;
 
-  nmolecules = 250;
+  nmolecules = arg[3];
   size_array_rows = nmolecules;
 
 // Memory allocation
